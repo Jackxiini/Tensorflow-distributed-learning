@@ -23,7 +23,7 @@ TensorFlow 中 Parameter Server 架构目前仅支持异步训练模式， 而 R
 `MultiWorkerMirroredStrategy` 策略目前有两种可供选择的 CollectiveOps 。 一种为 `CollectiveCommunication.RING` ，它使用 gRPC 作为通信层实现了基于环的 AllReduce 操作。 另一种为 `CollectiveCommunication.NCCL`， 它使用了英伟达的 NCCL 库来实现 AllReduce 操作。在实际使用中，可以基于自己的运行环境选择合适的 CollectiveOps，或者使用 `CollectiveCommunication.AUTO` 交由 TensorFlow 运行时自行选择。
 
 以下是创建代码的一个例子：
-```
+```python
 strategy = tf.distribute.experimental.MultiWorkerMirroredStrategy(
 						tf.distribute.experimental.CollectiveCommunication.AUTO)
 ```
@@ -156,7 +156,7 @@ multi_worker_model.fit(x=dist_dataset, epochs=10, steps_per_epoch=20)
 7.最后在各节点控制台运行python脚本即可启动分布式
 
 若我们没有在脚本中定义`TF_CONFIG`，则我们也可以通过以下方式启动分布式
-```
+```shell
 TF_CONFIG='{"cluster": {"worker": ["10.157.106.90:9000", "10.157.106.151:9000"]}, "task": {"index": 0, "type": "worker"}}' python tf_dist_example.py
 TF_CONFIG='{"cluster": {"worker": ["10.157.106.90:9000", "10.157.106.151:9000"]}, "task": {"index": 1, "type": "worker"}}' python tf_dist_example.py
 ```
