@@ -1,6 +1,6 @@
 # Tensorflow分布式训练
 
-##架构介绍
+## 架构介绍
 
 与[ Pytorch 分布式训练](https://github.com/Jackxiini/Pytorch-distributed-learning)相同，Tensorflow 默认使用 RingAllReduce 的分布式方法来进行分布式训练。Tensorflow 也支持与[ MXNet 分布式训练](http://agroup.baidu.com/zhongce_saas/md/article/4091526)相同的 Parameter Server 方法的分布式训练，但是不做推荐。相对而言 RingAllReduce 的性能要优于 Parameter Server，Parameter Server 存在带宽瓶颈的问题。
 
@@ -8,7 +8,7 @@ TensorFlow 中 Parameter Server 架构目前仅支持异步训练模式， 而 R
 
 本文主要介绍如何使用 Tensorflow 的 `MultiWorkerMirroredStrategy` API 来进行多机多卡的分布式训练。需要注意，本文仅支持 Tensorflow 2.X 版本。
 
-##训练策略
+## 训练策略
 
 本文只对 RingAllReduce方法的策略做介绍，所以只会涉及到 `MirroredStrategy` 和 `MultiWorkerMirroredStrategy`。其他的如 Parameter Server 的策略 `ParameterServerStrategy` 则不做阐述。
 
@@ -28,13 +28,13 @@ strategy = tf.distribute.experimental.MultiWorkerMirroredStrategy(
 						tf.distribute.experimental.CollectiveCommunication.AUTO)
 ```
 
-##定义集群
+## 定义集群
 TensorFlow 中定义集群配置信息的标准方式是使用 `TF_CONFIG` 环境变量来实现的，该环境变量定义了集群中所有节点的配置信息，包括所有 worker 节点的网络地址，当前 worker 节点的索引 (index) 以及当前 worker 节点的角色 (type)。
 
 如果所有 worker 节点都不包含 GPU ，则该策略会退化为使用 CPU 在多个 worker 节点间进行分布式训练。如果集群中的 worker 节点数量只有一个则该策略会退化为 `MirroredStrategy` 策略。
 
 以下是一个环境变量的设置例子：
-```
+```python
 {
   "cluster": {
     "chief": ["host1:port"],
@@ -60,19 +60,19 @@ TensorFlow 中定义集群配置信息的标准方式是使用 `TF_CONFIG` 环�
 
 为了增加节点使用的灵活性，我们在 python 程序中常通过 `os.environ["TF_CONFIG"]` 来指定集群的信息以实现按需创建，以便在单个物理节点中启动多个集群节点。
 
-##训练流程
+## 训练流程
 0. 确认各节点之间已开通互信，可以免密 ssh 通信
 1. 不同节点使用 `TF_CONFIG`中信息启动该节点的训练任务。Tensorflow 按照环境变量的值使用相应的 `ip:port`来启动当前节点的 gRPC 服务，并监听其他节点的 gRPC 服务。
 2. 所有节点 gRPC 服务准备就绪后，各个 worker 节点开始使用自己的数据集训练。
 3. 每个 Batch 过后，Tensorflow 会根据分布式策略去更新 worker 的变量， 完成后进行下一个 Batch。
 4. 完成所有训练后，训练结束，所有节点的 gRPC 服务关闭。
 
-##案例演示
+## 案例演示
 
-注意：首先先要确认各节点间可以免密通信
+注意：首先先要确认各节点间可以免密通信，建立免密方法可参考[此文档](https://github.com/Jackxiini/Trust-relationship-configuration-between-Linux-servers/blob/main/%E6%93%8D%E4%BD%9C%E6%AD%A5%E9%AA%A4.md)。
 
 1.载入需要使用的包
-```
+```python
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import json
@@ -81,7 +81,7 @@ import os
 
 2.紧接着我们需要定义`TF_CONFIG`和策略，这两部分需要在脚本最前面写，且需要把`TF_CONFIG`写在策略前边
 
-```
+```python
 os.environ["TF_CONFIG"] = json.dumps({"cluster":
                                           {"worker": ["172.16.16.5:12345", "172.16.16.6:12345"]},
                                       "task":
@@ -91,7 +91,7 @@ os.environ["TF_CONFIG"] = json.dumps({"cluster":
 strategy = tf.distribute.experimental.MultiWorkerMirroredStrategy(tf.distribute.experimental.CollectiveCommunication.AUTO)
 ```
 3.载入数据集，对数据集做预处理，此处我们使用 `tensorflow_datasets`包下载数据集，数据结构为`tf.data.Dataset`
-```
+```python
 tfds.disable_progress_bar()
 BUFFER_SIZE = 10000
 NUM_WORKERS = 2
@@ -112,14 +112,14 @@ def make_datasets_unbatched():
 ```
 4.读取到数据集后，我们必须做以下操作来分发数据。数据必须是`tf.data.Dataset`格式才能做此操作
 
-```
+```python
 train_datasets = make_datasets_unbatched().batch(GLOBAL_BATCH_SIZE)
 options = tf.data.Options()
 options.experimental_distribute.auto_shard_policy = tf.data.experimental.AutoShardPolicy.OFF
 dist_dataset = train_datasets.with_options(options)
 ```
 若格式不是`Dataset`，我们可以用以下方式转换：
-```
+```python
 train_x, train_y = np.array(...), np.array(...)
 val_x, val_y = np.array(...), np.array(...)
 
@@ -129,7 +129,7 @@ val_data = tf.data.Dataset.from_tensor_slices((val_x, val_y))
 ```
 
 5.创建神经网络结构，优化器，Loss等
-```
+```python
 def build_and_compile_cnn_model():
   model = tf.keras.Sequential([
       tf.keras.layers.Conv2D(32, 3, activation='relu', input_shape=(28, 28, 1)),
@@ -147,7 +147,7 @@ def build_and_compile_cnn_model():
   return model
 ```
 6.使用`strategy.scope`来分发模型并用`fit`函数训练
-```
+```python
 with strategy.scope():
     multi_worker_model = build_and_compile_cnn_model()
 
